@@ -1,5 +1,6 @@
 [org 0x7c00]                  ; Bootloader loads at 0x7c00 in memory
 KERNEL_LOCATION equ 0x7e00    ; Where kernel will be loaded (0x7c00 + 512)
+SECTOR_COUNT equ 0x08    ; Where kernel will be loaded (0x7c00 + 512)
 
 mov [BOOT_DISK], dl           ; Save boot disk number from BIOS in BOOT_DISK
 
@@ -8,19 +9,32 @@ mov es, ax                   ; Set ES = 0 (segment 0)
 mov ds, ax                   ; Set DS = 0
 mov bp, 0x8000               ; Set BP stack base (real mode)
 mov sp, bp                   ; Set SP = BP (stack pointer)
-
 mov bx, KERNEL_LOCATION      ; BX = address to load kernel
-mov dh, 8                    ; DH = Sectorz to read
 
-mov ah, 0x02                ; BIOS disk read function
-mov al, dh                  ; AL = number of sectors to read (2 sectors)
-mov ch, 0x00                ; Cylinder 0
-mov dh, 0x00                ; Head 0 (overwrites previous dh=2)
-mov cl, 0x02                ; Sector 2 (first sector is 1)
-mov dl, [BOOT_DISK]         ; Boot disk number
-int 0x13                    ; BIOS disk read - load 2 sectors into memory at 0x7e00
+mov ah, 0x41               ; Check if LBA is supported
+mov bx, 0x55AA             ; Magic number required by BIOS
+int 0x13                   ; BIOS disk function
+jc use_CHS                 ; If carry flag is set, LBA is not supported
 
-jnc no_error 
+jmp use_LBA                ; If LBA is supported, jump to LBA routine
+
+use_CHS:
+mov ah, 0x02               ; BIOS CHS disk read function
+mov al, SECTOR_COUNT       ; Number of sectors to read
+mov ch, 0x00               ; Cylinder 0
+mov dh, 0x00               ; Head 0
+mov cl, 0x02               ; Sector 2 (first sector is 1)
+mov dl, [BOOT_DISK]        ; Boot disk number
+int 0x13                   ; BIOS disk read
+jnc no_error
+jmp error
+
+use_LBA:
+mov ah, 0x42               ; BIOS LBA read function
+mov dl, [BOOT_DISK]        ; Boot disk number
+mov si, lba_packet         ; Address of LBA packet structure
+int 0x13                   ; BIOS disk read
+jnc no_error
 jmp error
 
 ; i wanted to put data close to the code using it or some other reason im too lazy to scroll. Basically <INSERT_EXCUSE_HERE>
@@ -57,15 +71,12 @@ or eax, 1                  ; Set PE bit (bit 0) to enable protected mode
 mov cr0, eax               ; Write back to CR0
 
 jmp CODE_SEG:start_protected_mode ; Far jump to reload CS and enter protected mode
-
 jmp HALT_RM_B16            ; Infinite loop (should not reach here)
-
 
 HALT_RM_B16:
     cli
     hlt
     jmp HALT_RM_B16
-
 
 BOOT_DISK: db 0            ; Storage for boot disk number
 
