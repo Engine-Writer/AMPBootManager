@@ -1,6 +1,6 @@
 [org 0x7c00]                  ; Bootloader loads at 0x7c00 in memory
 KERNEL_LOCATION equ 0x7e00    ; Where kernel will be loaded (0x7c00 + 512)
-SECTOR_COUNT equ 0x08    ; Where kernel will be loaded (0x7c00 + 512)
+SECTOR_COUNT equ 0x02    ; Where kernel will be loaded (0x7c00 + 512)
 
 mov [BOOT_DISK], dl           ; Save boot disk number from BIOS in BOOT_DISK
 
@@ -14,8 +14,8 @@ mov bx, KERNEL_LOCATION      ; BX = address to load kernel
 mov ah, 0x41               ; Check if LBA is supported
 mov bx, 0x55AA             ; Magic number required by BIOS
 int 0x13                   ; BIOS disk function
-jc use_CHS                 ; If carry flag is set, LBA is not supported
 
+jc use_CHS                 ; If carry flag is set, LBA is not supported
 jmp use_LBA                ; If LBA is supported, jump to LBA routine
 
 use_CHS:
@@ -27,7 +27,9 @@ mov cl, 0x02               ; Sector 2 (first sector is 1)
 mov dl, [BOOT_DISK]        ; Boot disk number
 int 0x13                   ; BIOS disk read
 jnc no_error
-jmp error
+
+mov bx, badcode_error_string_1
+jmp loop_point_0
 
 use_LBA:
 mov ah, 0x42               ; BIOS LBA read function
@@ -35,14 +37,25 @@ mov dl, [BOOT_DISK]        ; Boot disk number
 mov si, lba_packet         ; Address of LBA packet structure
 int 0x13                   ; BIOS disk read
 jnc no_error
-jmp error
+
+mov bx, badcode_error_string_2
+jmp loop_point_0
 
 ; i wanted to put data close to the code using it or some other reason im too lazy to scroll. Basically <INSERT_EXCUSE_HERE>
 badcode_error_string_1:
-    db "ERR: 0x1BADC0DE", 0
+    db "ERR: 0x1BCE", 0
+; i wanted to put data close to the code using it or some other reason im too lazy to scroll. Basically <INSERT_EXCUSE_HERE>
+badcode_error_string_2:
+    db "ERR: 0x2BCE", 0
+    
+lba_packet:
+    db 0x10                ; Packet size (16 bytes)
+    db 0x00                ; Reserved
+    dw SECTOR_COUNT        ; Number of sectors to read (using variable)
+    dw KERNEL_LOCATION     ; Buffer location where kernel loads
+    dw 0x0000              ; Segment (part of buffer address)
+    dq 2                   ; LBA sector number (assuming kernel starts at sector 2)
 
-error:
-mov bx, badcode_error_string_1
 loop_point_0:
     mov ah, 0x0E
     mov al, [bx]    ; char to print
